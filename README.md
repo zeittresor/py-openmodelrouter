@@ -12,3 +12,7 @@ restricted execution environment.
 This module can be launched with `uvicorn app:app --reload --port 8000`.
 
 <img width="1128" height="847" alt="grafik" src="https://github.com/user-attachments/assets/492090e4-92ae-4d87-9b30-5aa57af5ba3f" />
+
+btw. this is a unfinished "proof of concept" project .. WIP
+
+Source: https://github.com/zeittresor/py-openmodelrouter
