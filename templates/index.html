@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Multi-Model Router</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body{font-family:system-ui,Arial;margin:20px;background:#0b0e13;color:#e8ecf1}
+    h1{margin:0 0 10px} .card{background:#121722;border:1px solid #1e2635;border-radius:12px;padding:16px;margin:14px 0}
+    label{display:block;margin-top:8px} input,select,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid #263146;background:#0e1420;color:#e8ecf1}
+    button{padding:10px 14px;border-radius:10px;border:1px solid #2d3a52;background:#1a2436;color:#e8ecf1;cursor:pointer}
+    .row{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+    pre{white-space:pre-wrap;background:#0e1420;border:1px solid #263146;padding:12px;border-radius:10px}
+  </style>
+</head>
+<body>
+  <h1>Multi-Model Router</h1>
+
+  <div class="card">
+    <strong>Status</strong>
+    <div id="status">lade…</div>
+  </div>
+
+  <div class="card row">
+    <div>
+      <strong>Modelle (./models)</strong>
+      <div id="models"></div>
+      <div style="margin-top:10px">
+        <label>Ollama-Tag laden (z. B. <code>gpt-oss:20b</code>)</label>
+        <input id="pullName" placeholder="gpt-oss:20b">
+        <button onclick="pull()">Download / Pull</button>
+      </div>
+    </div>
+    <div>
+      <strong>Konfiguration</strong>
+      <label>num_ctx</label><input id="num_ctx" type="number">
+      <label>num_batch</label><input id="num_batch" type="number">
+      <label>num_threads</label><input id="num_threads" type="number">
+      <label>temp primary</label><input id="tpri" type="number" step="0.05">
+      <label>temp advisor</label><input id="tadv" type="number" step="0.05">
+      <button onclick="saveCfg()" style="margin-top:8px">Speichern</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <strong>Abfrage</strong>
+    <label>Frage</label>
+    <textarea id="q" rows="5" placeholder="Dein Prompt…"></textarea>
+
+    <div class="row">
+      <div>
+        <label>Primary-Modell (Ollama-Tag, z. B. gpt-oss:20b oder local/…)</label>
+        <input id="primary" placeholder="gpt-oss:20b">
+      </div>
+      <div>
+        <label>Advisor-Modelle (Komma-getrennt)</label>
+        <input id="advisors" placeholder="mixtral:8x7b-instruct-q5_K_M, local/llama3-8b-q5_k_m">
+      </div>
+    </div>
+    <label><input id="force" type="checkbox"> Advisors erzwingen</label>
+    <button onclick="runQuery()" style="margin-top:10px">Ausführen</button>
+
+    <h3>Ergebnis</h3>
+    <pre id="out"></pre>
+  </div>
+
+  <div class="card">
+    <strong>Memory (Kurz-Digest)</strong>
+    <pre id="mem"></pre>
+  </div>
+
+<script>
+async function jget(u){const r=await fetch(u); if(!r.ok) throw new Error(await r.text()); return r.json();}
+async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); if(!r.ok) throw new Error(await r.text()); return r.json();}
+
+async function load(){
+  try{
+    const cfg = await jget('/config');
+    num_ctx.value = cfg.num_ctx;
+    num_batch.value = cfg.num_batch;
+    num_threads.value = cfg.num_threads;
+    tpri.value = cfg.temperature_primary;
+    tadv.value = cfg.temperature_advisor;
+
+    const ms = await jget('/models');
+    document.getElementById('models').innerHTML = ms.length
+      ? '<ul>'+ms.map(m=>`<li>${m.display_name} <small style="opacity:.7">(${m.filename})</small></li>`).join('')+'</ul>'
+      : '<em>Keine .gguf im ./models Ordner gefunden.</em>';
+
+    const mem = await jget('/memory');
+    document.getElementById('mem').textContent = mem.digest || '(leer)';
+
+    document.getElementById('status').textContent = 'bereit';
+  }catch(e){
+    document.getElementById('status').textContent = 'Fehler: '+e.message;
+  }
+}
+
+async function saveCfg(){
+  await jpost('/config',{
+    num_ctx: +num_ctx.value,
+    num_batch: +num_batch.value,
+    num_threads: +num_threads.value,
+    temperature_primary: +tpri.value,
+    temperature_advisor: +tadv.value
+  });
+  alert('Konfiguration gespeichert.');
+}
+
+async function pull(){
+  const name = pullName.value.trim();
+  if(!name) return alert('Bitte einen Ollama-Tag angeben (z. B. gpt-oss:20b)');
+  const res = await jpost('/download_model',{name});
+  alert(res.status || 'Fertig.');
+  load();
+}
+
+async function runQuery(){
+  const res = await jpost('/query',{
+    question: q.value,
+    primary_model: primary.value || 'gpt-oss:20b',
+    advisor_models: (advisors.value || '').split(',').map(s=>s.trim()).filter(Boolean),
+    force_advisors: document.getElementById('force').checked
+  });
+  document.getElementById('out').textContent = res.final || JSON.stringify(res,null,2);
+}
+load();
+</script>
+</body>
+</html>

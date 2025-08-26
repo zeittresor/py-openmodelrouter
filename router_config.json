@@ -1,0 +1,7 @@
+{
+  "num_ctx": 8192,
+  "num_batch": 320,
+  "num_threads": 4,
+  "temperature_primary": 0.6,
+  "temperature_advisor": 0.2
+}

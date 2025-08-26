@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multi‑Model Router UI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        h1 {
+            margin-bottom: 20px;
+        }
+        .section {
+            background: #fff;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .section h2 {
+            margin-top: 0;
+        }
+        label {
+            font-weight: bold;
+            margin-top: 10px;
+            display: block;
+        }
+        input[type="text"], input[type="number"], textarea, select {
+            width: 100%;
+            padding: 6px;
+            margin-top: 4px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            background-color: #007BFF;
+            color: #fff;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <h1>Multi‑Model Router</h1>
+
+    <div class="section" id="models-section">
+        <h2>Local Models</h2>
+        <p>Loading model list…</p>
+    </div>
+
+    <div class="section" id="config-section">
+        <h2>Configuration</h2>
+        <form id="config-form"></form>
+        <button id="save-config" type="button">Save Config</button>
+    </div>
+
+    <div class="section" id="query-section">
+        <h2>Run Query</h2>
+        <label for="question">Question:</label>
+        <textarea id="question" rows="4"></textarea>
+        <label for="primary-model">Primary Model:</label>
+        <select id="primary-model"></select>
+        <label for="advisor-models">Advisor Models (select multiple):</label>
+        <select id="advisor-models" multiple></select>
+        <label>
+            <input type="checkbox" id="force-advisors" /> Force advisors
+        </label>
+        <button id="run-query" type="button">Run</button>
+    </div>
+
+    <div class="section" id="results-section">
+        <h2>Results</h2>
+        <div id="results-content">No results yet.</div>
+    </div>
+
+    <div class="section" id="memory-section">
+        <h2>Memory</h2>
+        <button id="refresh-memory" type="button">Refresh Memory</button>
+        <pre id="memory-digest"></pre>
+    </div>
+
+    <script>
+    async function fetchJSON(url, options) {
+        const response = await fetch(url, options);
+        if (!response.ok) {
+            let errMsg = response.statusText;
+            try {
+                const data = await response.json();
+                errMsg = data.detail || errMsg;
+            } catch (e) {}
+            throw new Error(errMsg);
+        }
+        return response.json();
+    }
+
+    async function loadModels() {
+        try {
+            const models = await fetchJSON('/models');
+            const primarySelect = document.getElementById('primary-model');
+            const advisorSelect = document.getElementById('advisor-models');
+            primarySelect.innerHTML = '';
+            advisorSelect.innerHTML = '';
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.display_name;
+                opt.textContent = m.display_name;
+                primarySelect.appendChild(opt);
+                const advOpt = document.createElement('option');
+                advOpt.value = m.display_name;
+                advOpt.textContent = m.display_name;
+                advisorSelect.appendChild(advOpt);
+            });
+            const modelsSection = document.getElementById('models-section');
+            modelsSection.innerHTML = '<h2>Local Models</h2>';
+            if (models.length === 0) {
+                modelsSection.innerHTML += '<p>No models found in the models directory.</p>';
+                return;
+            }
+            const table = document.createElement('table');
+            const headRow = document.createElement('tr');
+            headRow.innerHTML = '<th>Name</th><th>Size (B)</th><th>Quant</th><th>Action</th>';
+            table.appendChild(headRow);
+            models.forEach(m => {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td>' + m.display_name + '</td>' +
+                                '<td>' + (m.size_b || '') + '</td>' +
+                                '<td>' + (m.quant || '') + '</td>' +
+                                '<td><button type="button" onclick="downloadModel(\'' + m.display_name + '\')">Download</button></td>';
+                table.appendChild(row);
+            });
+            modelsSection.appendChild(table);
+        } catch (err) {
+            document.getElementById('models-section').innerHTML = '<p>Error loading models: ' + err.message + '</p>';
+        }
+    }
+
+    async function loadConfig() {
+        try {
+            const cfg = await fetchJSON('/config');
+            const form = document.getElementById('config-form');
+            form.innerHTML = '';
+            for (const key in cfg) {
+                const label = document.createElement('label');
+                label.textContent = key;
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.id = 'cfg-' + key;
+                input.value = cfg[key];
+                label.appendChild(input);
+                form.appendChild(label);
+            }
+        } catch (err) {
+            document.getElementById('config-section').innerHTML += '<p>Error loading config: ' + err.message + '</p>';
+        }
+    }
+
+    document.getElementById('save-config').addEventListener('click', async () => {
+        const form = document.getElementById('config-form');
+        const data = {};
+        form.querySelectorAll('input').forEach(inp => {
+            const key = inp.id.replace('cfg-', '');
+            data[key] = parseFloat(inp.value);
+        });
+        try {
+            await fetchJSON('/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+            alert('Configuration saved.');
+        } catch (err) {
+            alert('Error saving configuration: ' + err.message);
+        }
+    });
+
+    async function downloadModel(name) {
+        try {
+            const resp = await fetchJSON('/download_model', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: name })
+            });
+            alert(resp.message);
+        } catch (err) {
+            alert('Download error: ' + err.message);
+        }
+    }
+
+    document.getElementById('run-query').addEventListener('click', async () => {
+        const q = document.getElementById('question').value.trim();
+        if (!q) { alert('Please enter a question.'); return; }
+        const primary = document.getElementById('primary-model').value;
+        const advisors = Array.from(document.getElementById('advisor-models').selectedOptions).map(o => o.value);
+        const force = document.getElementById('force-advisors').checked;
+        document.getElementById('results-content').textContent = 'Running...';
+        try {
+            const session = await fetchJSON('/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: q, primary_model: primary, advisor_models: advisors, force_advisors: force })
+            });
+            let html = '<h3>Final Answer</h3><p>' + session.final + '</p>';
+            if (session.advisors && session.advisors.length > 0) {
+                html += '<h3>Advisors</h3>';
+                session.advisors.forEach(ar => {
+                    html += '<p><strong>' + ar.model + '</strong>: ' + ar.answer + '</p>';
+                });
+            }
+            document.getElementById('results-content').innerHTML = html;
+            refreshMemory();
+        } catch (err) {
+            document.getElementById('results-content').textContent = 'Error: ' + err.message;
+        }
+    });
+
+    async function refreshMemory() {
+        try {
+            const mem = await fetchJSON('/memory');
+            document.getElementById('memory-digest').textContent = mem.digest;
+        } catch (err) {
+            document.getElementById('memory-digest').textContent = 'Error loading memory: ' + err.message;
+        }
+    }
+
+    document.getElementById('refresh-memory').addEventListener('click', refreshMemory);
+
+    // Initial load
+    loadModels();
+    loadConfig();
+    refreshMemory();
+    </script>
+</body>
+</html>

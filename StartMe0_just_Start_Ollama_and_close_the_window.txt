@@ -1,0 +1,3 @@
+ollama can be found here if you dont have it already: ollama.com
+just download and install it.. (and start it for the first time, just ask at least a single simple question ..
+(it might take some time to download the selected model onto your system ~1 hour)
